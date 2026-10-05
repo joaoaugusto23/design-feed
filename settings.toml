@@ -1,0 +1,45 @@
+# Job watcher settings
+# Edit this file on GitHub (pencil icon), then click "Commit changes".
+# Text between quotes is not case-sensitive.
+
+# A job matches if its title CONTAINS any of these.
+include_titles = [
+  "product designer",
+  "ux designer",
+  "ui designer",
+  "ux/ui",
+  "ui/ux",
+  "product design lead",
+  "lead designer",
+  "designer, product",
+]
+
+# A job is skipped if its title has any of these words.
+# Remove "manager" or "director" if you want design management roles too.
+exclude_titles = [
+  "intern",
+  "internship",
+  "junior",
+  "associate",
+  "contract",
+  "contractor",
+  "freelance",
+  "industrial",
+  "graphic",
+  "brand",
+  "marketing",
+  "motion",
+  "manager",
+  "director",
+]
+
+# Only remote roles? (true or false)
+require_remote = true
+
+# Only roles open to people in the United States? (true or false)
+require_us = true
+
+# Some listings just say "Remote" without naming a country.
+# true = email them to you anyway, with a note to double-check.
+# false = skip them.
+include_unclear_location = true

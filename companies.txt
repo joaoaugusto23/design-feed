@@ -1,0 +1,84 @@
+# Companies to watch
+#
+# Add one company per line. The easiest way: paste the link to any job
+# at that company, for example
+#   https://jobs.lever.co/acme/1234-abcd
+#   https://job-boards.greenhouse.io/acme/jobs/5678
+#   https://jobs.ashbyhq.com/acme
+# The watcher figures out the rest. You can also write "greenhouse acme".
+#
+# Lines starting with # are ignored. To stop watching a company, delete
+# its line or put # in front of it.
+#
+# This starter list hasn't been checked against the live sites yet.
+# Your first email lists any that don't work so you can fix or remove them.
+
+# --- Restaurant, hospitality and commerce tech (closest to your Qu experience)
+greenhouse toast
+greenhouse olo
+greenhouse sevenrooms
+greenhouse faire
+greenhouse instacart
+greenhouse doordashusa
+greenhouse squarespace
+greenhouse affirm
+
+# --- Design-led product companies
+greenhouse figma
+greenhouse airbnb
+greenhouse stripe
+greenhouse discord
+greenhouse dropbox
+greenhouse pinterest
+greenhouse duolingo
+greenhouse webflow
+greenhouse asana
+greenhouse airtable
+greenhouse calendly
+greenhouse grammarly
+greenhouse intercom
+ashby notion
+ashby linear
+ashby vercel
+ashby replit
+ashby supabase
+
+# --- Fintech
+greenhouse robinhood
+greenhouse brex
+greenhouse gusto
+greenhouse carta
+greenhouse coinbase
+greenhouse nerdwallet
+ashby ramp
+ashby mercury
+lever plaid
+
+# --- B2B SaaS, data and operations software
+greenhouse datadog
+greenhouse gitlab
+greenhouse twilio
+greenhouse samsara
+greenhouse cloudflare
+greenhouse databricks
+greenhouse elastic
+greenhouse okta
+greenhouse checkr
+greenhouse flexport
+greenhouse amplitude
+greenhouse mongodb
+lever palantir
+
+# --- AI companies
+greenhouse anthropic
+ashby openai
+ashby perplexity
+
+# --- Consumer and media
+greenhouse reddit
+greenhouse lyft
+greenhouse roblox
+lever netflix
+lever spotify
+greenhouse khanacademy
+greenhouse oscar
