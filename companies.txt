@@ -15,8 +15,8 @@
 
 # --- Restaurant, hospitality and commerce tech (closest to your Qu experience)
 greenhouse toast
-greenhouse olo
-greenhouse sevenrooms
+lever olo
+# SevenRooms is now part of DoorDash; covered by doordashusa above
 greenhouse faire
 greenhouse instacart
 greenhouse doordashusa
@@ -35,7 +35,7 @@ greenhouse webflow
 greenhouse asana
 greenhouse airtable
 greenhouse calendly
-greenhouse grammarly
+https://jobs.ashbyhq.com/Superhuman%20Platform%20Inc   # Grammarly, now Superhuman
 greenhouse intercom
 ashby notion
 ashby linear
@@ -49,10 +49,10 @@ greenhouse brex
 greenhouse gusto
 greenhouse carta
 greenhouse coinbase
-greenhouse nerdwallet
+# greenhouse nerdwallet   (job system unknown; check later)
 ashby ramp
 ashby mercury
-lever plaid
+ashby plaid
 
 # --- B2B SaaS, data and operations software
 greenhouse datadog
@@ -65,7 +65,7 @@ greenhouse elastic
 greenhouse okta
 greenhouse checkr
 greenhouse flexport
-greenhouse amplitude
+ashby amplitude
 greenhouse mongodb
 lever palantir
 
@@ -78,7 +78,7 @@ ashby perplexity
 greenhouse reddit
 greenhouse lyft
 greenhouse roblox
-lever netflix
+# Netflix uses its own careers site, which the watcher cannot follow
 lever spotify
 greenhouse khanacademy
 greenhouse oscar
