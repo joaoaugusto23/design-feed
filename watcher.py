@@ -51,24 +51,41 @@ def parse_company(line):
     return None
 
 
-def load_companies():
-    companies, problems, seen = [], [], set()
-    for n, raw in enumerate((ROOT / "companies.txt").read_text(encoding="utf-8").splitlines(), 1):
+def read_company_file(path, source, seen, companies, problems):
+    if not path.exists():
+        return
+    for n, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         line = raw.split("#", 1)[0].strip()
         if not line:
             continue
         c = parse_company(line)
         if not c:
-            problems.append(f"Line {n} of companies.txt wasn't understood: `{line}`")
+            if source == "manual":
+                problems.append(f"Line {n} of companies.txt wasn't understood: '{line}'")
             continue
         key = (c[0], c[1].lower())
         if key not in seen:
             seen.add(key)
-            companies.append(c)
+            companies.append((c[0], c[1], source))
+
+
+def load_companies():
+    """companies.txt is your hand-picked list; discovered.txt is filled in by discover.py."""
+    companies, problems, seen = [], [], set()
+    read_company_file(ROOT / "companies.txt", "manual", seen, companies, problems)
+    read_company_file(ROOT / "discovered.txt", "discovered", seen, companies, problems)
     return companies, problems
 
 
 # ---------------------------------------------------------------- fetching
+
+class NotFound(Exception):
+    pass
+
+
+class RateLimited(Exception):
+    pass
+
 
 def fetch_json(url):
     req = urllib.request.Request(url, headers={"User-Agent": "personal-job-watcher/1.0", "Accept": "application/json"})
@@ -79,7 +96,9 @@ def fetch_json(url):
                 return json.loads(r.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
             if e.code == 404:
-                raise RuntimeError("not found (the company name in companies.txt may be wrong)")
+                raise NotFound("not found (the company name in companies.txt may be wrong)")
+            if e.code == 429:
+                raise RateLimited("the job site asked us to slow down; will retry next run")
             last = e
         except Exception as e:  # network hiccup, timeout, bad JSON
             last = e
@@ -171,11 +190,11 @@ FETCHERS = {"greenhouse": get_greenhouse, "lever": get_lever, "ashby": get_ashby
 
 
 def check_company(company):
-    ats, slug = company
+    ats, slug, source = company
     try:
         return company, FETCHERS[ats](slug), None
     except Exception as e:
-        return company, [], str(e)
+        return company, [], e
 
 
 # ---------------------------------------------------------------- matching
@@ -202,6 +221,13 @@ REMOTE_RE = re.compile(r"\b(remote|anywhere|distributed|work from home|wfh)\b", 
 
 def word_in(term, text):
     return re.search(r"(?<![\w])" + re.escape(term.lower()) + r"(?![\w])", text) is not None
+
+
+def looks_us_or_remote(job):
+    loc = job["location"] or ""
+    country = (job["country"] or "").strip().lower()
+    return (job["workplace"] == "remote" or job["remote_flag"] is True or bool(REMOTE_RE.search(loc))
+            or country in ("us", "usa", "united states") or bool(US_RE.search(loc)) or bool(US_CODE_RE.search(loc)))
 
 
 def matches(job):
@@ -242,14 +268,17 @@ def load_state():
     return {"companies": [], "jobs": {}}
 
 
-def save_state(state, failed, problems, total_companies):
+def save_state(state, failed, problems, counts):
     SEEN_FILE.write_text(json.dumps(state, indent=1, sort_keys=True) + "\n", encoding="utf-8")
     lines = ["# Job watcher status", "",
-             f"Watching {total_companies - len(failed)} of {total_companies} companies successfully.", ""]
+             f"Your list (companies.txt): watching {counts['manual_ok']} of {counts['manual']} successfully.", ""]
+    if counts["discovered"]:
+        lines += [f"Found automatically (discovered.txt): watching {counts['discovered']} companies. "
+                  f"{counts['dropped']} were dropped because their job pages no longer exist.", ""]
     if failed or problems:
         lines += ["## Needs attention", "",
                   "These lines in companies.txt couldn't be checked. Fix the name or delete the line.", ""]
-        lines += [f"- {ats} `{slug}`: {err}" for (ats, slug), err in failed]
+        lines += [f"- {ats} '{slug}': {err}" for (ats, slug), err in failed]
         lines += [f"- {p}" for p in problems]
     else:
         lines.append("Everything on your list is working.")
@@ -319,12 +348,13 @@ def build_email(new, already, failed, problems, first_run, total):
         shown = ", ".join(names[:3]) + (f" +{len(names) - 3} more" if len(names) > 3 else "")
         n = len(new)
         subject = (f"{n} new design role{'s' if n != 1 else ''}: {shown}" if new
-                   else f"Roles already open at companies you added: {shown}")
+                   else f"Recent design roles at newly added companies: {shown}")
         lead = "Apply soon while the list of applicants is still short." if new else ""
 
     h1, t1 = section("New since the last check", "These just appeared.", new)
-    h2, t2 = section("Already open" if first_run else "Already open at companies you just added",
-                     "These were open before the watcher started checking, so they aren't brand new.", already)
+    h2, t2 = section("Already open" if first_run else "At companies just added to your watch list",
+                     "These were posted before the watcher started checking these companies, "
+                     "so they aren't brand new, but they're recent enough to be worth a look.", already)
     fix_h = fix_t = ""
     if failed or problems:
         items = [f"{ats} {slug}: {err}" for (ats, slug), err in failed] + problems
@@ -366,6 +396,11 @@ def send_email(subject, text, html):
 
 # ---------------------------------------------------------------- main
 
+RECENT_DAYS = 3        # for newly found companies, still mention roles posted this recently
+MAX_RECENT_LISTED = 40
+DROP_AFTER_404S = 3    # auto-found companies are dropped after this many "not found" checks in a row
+
+
 def main():
     companies, problems = load_companies()
     if not companies:
@@ -374,18 +409,31 @@ def main():
     state = load_state()
     known_companies = set(state.get("companies", []))
     seen = state.setdefault("jobs", {})
+    fails = state.setdefault("fails", {})
+    dropped = set(state.get("dropped", []))
 
-    with ThreadPoolExecutor(max_workers=12) as pool:
-        results = list(pool.map(check_company, companies))
+    to_check = [c for c in companies if not (c[2] == "discovered" and f"{c[0]}:{c[1].lower()}" in dropped)]
+    with ThreadPoolExecutor(max_workers=24) as pool:
+        results = list(pool.map(check_company, to_check))
 
     new, already, failed = [], [], []
-    for (ats, slug), jobs, err in results:
+    manual_total = sum(1 for c in companies if c[2] == "manual")
+    recent_cutoff = NOW - timedelta(days=RECENT_DAYS)
+    for (ats, slug, source), jobs, err in results:
         key = f"{ats}:{slug.lower()}"
         if err:
-            failed.append(((ats, slug), err))
-            print(f"Couldn't check {ats} {slug}: {err}")
+            if source == "manual":
+                failed.append(((ats, slug), str(err)))
+                print(f"Couldn't check {ats} {slug}: {err}")
+            elif isinstance(err, NotFound):
+                fails[key] = fails.get(key, 0) + 1
+                if fails[key] >= DROP_AFTER_404S:
+                    dropped.add(key)
+                    fails.pop(key, None)
             continue
+        fails.pop(key, None)
         newly_added = key not in known_companies
+        quiet = newly_added and source == "discovered" and not first_run
         for job in jobs:
             ok, note = matches(job)
             if not ok:
@@ -395,24 +443,36 @@ def main():
                 seen[job["id"]] = NOW.isoformat()  # still open; refresh so it isn't pruned
                 continue
             seen[job["id"]] = NOW.isoformat()
-            (already if (first_run or newly_added) else new).append(job)
+            if quiet:
+                # A company the finder just added: only mention roles that are still fresh.
+                if job["posted"] and job["posted"] >= recent_cutoff:
+                    already.append(job)
+            elif first_run or newly_added:
+                if source == "manual" or (job["posted"] and job["posted"] >= recent_cutoff):
+                    already.append(job)
+            else:
+                new.append(job)
         known_companies.add(key)
 
-    # Forget jobs not seen open for 120 days so the file stays small.
     cutoff = NOW - timedelta(days=120)
     state["jobs"] = {k: v for k, v in seen.items() if parse_time(v) and parse_time(v) > cutoff}
     state["companies"] = sorted(known_companies)
+    state["dropped"] = sorted(dropped)
+    state["fails"] = fails
 
     sort_key = lambda j: j["posted"] or datetime.min.replace(tzinfo=timezone.utc)
     new.sort(key=sort_key, reverse=True)
     already.sort(key=sort_key, reverse=True)
-    print(f"Checked {len(companies) - len(failed)}/{len(companies)} companies. "
+    already = already[:MAX_RECENT_LISTED] if len(already) > MAX_RECENT_LISTED else already
+    counts = {"manual": manual_total, "manual_ok": manual_total - len(failed),
+              "discovered": sum(1 for c in to_check if c[2] == "discovered"), "dropped": len(dropped)}
+    print(f"Checked {len(to_check)} companies ({counts['discovered']} found automatically). "
           f"New: {len(new)}. Already open: {len(already)}.")
 
     if first_run or new or already:
-        send_email(*build_email(new, already, failed, problems, first_run, len(companies)))
+        send_email(*build_email(new, already, failed, problems, first_run, len(to_check)))
     if not DRY_RUN:
-        save_state(state, failed, problems, len(companies))
+        save_state(state, failed, problems, counts)
 
 
 if __name__ == "__main__":
