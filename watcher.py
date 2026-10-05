@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-Job watcher: checks company job pages on Greenhouse, Lever and Ashby,
+Job watcher: checks company job pages on nine hiring systems,
 finds new design roles that match settings.toml, and emails you about them.
 
+Reads Greenhouse, Lever, Ashby, Workable, SmartRecruiters, Recruitee, BambooHR, Breezy and Workday.
 You shouldn't need to edit this file. Change settings.toml and companies.txt instead.
 """
 import json
@@ -36,7 +37,16 @@ URL_PATTERNS = [
     ("greenhouse", re.compile(r"(?:job-boards|boards)\.greenhouse\.io/(?:embed/job_board\?for=)?([\w-]+)", re.I)),
     ("lever", re.compile(r"jobs\.lever\.co/([\w.-]+)", re.I)),
     ("ashby", re.compile(r"jobs\.ashbyhq\.com/([^/?#\s]+)", re.I)),
+    ("workable", re.compile(r"apply\.workable\.com/(?!j/|api/)([\w-]+)", re.I)),
+    ("smartrecruiters", re.compile(r"(?:jobs|careers)\.smartrecruiters\.com/([\w-]+)", re.I)),
+    ("recruitee", re.compile(r"(?:https?://)?([\w-]+)\.recruitee\.com", re.I)),
+    ("bamboohr", re.compile(r"(?:https?://)?([\w-]+)\.bamboohr\.com", re.I)),
+    ("breezy", re.compile(r"(?:https?://)?([\w-]+)\.breezy\.hr", re.I)),
+    ("workday", re.compile(r"(?:https?://)?([\w-]+\.wd\d+)\.myworkdayjobs\.com/(?:[a-z]{2}-[A-Z]{2}/)?([\w-]+)", re.I)),
 ]
+ATS_NAMES = ("greenhouse", "lever", "ashby", "workable", "smartrecruiters", "recruitee", "bamboohr", "breezy", "workday")
+NOT_COMPANY = {"www", "api", "app", "help", "support", "blog", "jobs", "j", "careers", "embed", "marketplace",
+               "partners", "status", "docs", "wday", "job", "oneclick-ui", "sr-jobs", "static", "assets", "login"}
 
 
 def parse_company(line):
@@ -44,9 +54,17 @@ def parse_company(line):
     for ats, pattern in URL_PATTERNS:
         m = pattern.search(line)
         if m:
-            return (ats, urllib.parse.unquote(m.group(1)))
+            if ats == "workday":
+                slug = f"{m.group(1).lower()}/{m.group(2)}"
+                if m.group(2).lower() in NOT_COMPANY:
+                    return None
+                return (ats, slug)
+            slug = urllib.parse.unquote(m.group(1))
+            if slug.lower() in NOT_COMPANY:
+                return None
+            return (ats, slug)
     parts = line.replace(":", " ").split()
-    if len(parts) == 2 and parts[0].lower() in ("greenhouse", "lever", "ashby"):
+    if len(parts) == 2 and parts[0].lower() in ATS_NAMES:
         return (parts[0].lower(), parts[1])
     return None
 
@@ -87,8 +105,13 @@ class RateLimited(Exception):
     pass
 
 
-def fetch_json(url):
-    req = urllib.request.Request(url, headers={"User-Agent": "personal-job-watcher/1.0", "Accept": "application/json"})
+def fetch_json(url, body=None):
+    headers = {"User-Agent": "personal-job-watcher/1.0", "Accept": "application/json"}
+    data = None
+    if body is not None:
+        data = json.dumps(body).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=data, headers=headers)
     last = None
     for _ in range(2):
         try:
@@ -111,7 +134,10 @@ def parse_time(value):
     try:
         if isinstance(value, (int, float)):
             return datetime.fromtimestamp(value / 1000, tz=timezone.utc)
-        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        text = str(value).strip().replace(" UTC", "+00:00").replace("Z", "+00:00")
+        if len(text) > 10 and text[10] == " ":
+            text = text[:10] + "T" + text[11:]
+        dt = datetime.fromisoformat(text)
         return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
     except ValueError:
         return None
@@ -121,7 +147,7 @@ def pretty(slug):
     return re.sub(r"[-_]+", " ", slug).strip().title()
 
 
-def get_greenhouse(slug):
+def get_greenhouse(slug, discovery=False):
     data = fetch_json(f"https://boards-api.greenhouse.io/v1/boards/{urllib.parse.quote(slug)}/jobs")
     jobs = []
     for j in data.get("jobs", []):
@@ -137,7 +163,7 @@ def get_greenhouse(slug):
     return jobs
 
 
-def get_lever(slug):
+def get_lever(slug, discovery=False):
     data = fetch_json(f"https://api.lever.co/v0/postings/{urllib.parse.quote(slug)}?mode=json")
     jobs = []
     for j in data if isinstance(data, list) else []:
@@ -162,7 +188,7 @@ def get_lever(slug):
     return jobs
 
 
-def get_ashby(slug):
+def get_ashby(slug, discovery=False):
     data = fetch_json(
         f"https://api.ashbyhq.com/posting-api/job-board/{urllib.parse.quote(slug)}?includeCompensation=true")
     jobs = []
@@ -186,7 +212,147 @@ def get_ashby(slug):
     return jobs
 
 
-FETCHERS = {"greenhouse": get_greenhouse, "lever": get_lever, "ashby": get_ashby}
+def job(id_, company, title, location, url, posted=None, workplace=None, remote_flag=None, country=None, pay=None):
+    return {"id": id_, "company": company, "title": title or "", "location": location or "", "url": url or "",
+            "posted": posted, "workplace": workplace, "remote_flag": remote_flag, "country": country, "pay": pay}
+
+
+def join_loc(*parts):
+    return ", ".join(str(p) for p in parts if p)
+
+
+def get_workable(slug, discovery=False):
+    data = fetch_json(f"https://apply.workable.com/api/v1/widget/accounts/{urllib.parse.quote(slug)}")
+    company = data.get("name") or pretty(slug)
+    jobs = []
+    for j in data.get("jobs", []):
+        locs = [l for l in (j.get("locations") or []) if not l.get("hidden")] or \
+               [{"city": j.get("city"), "region": j.get("state"), "country": j.get("country")}]
+        text = "; ".join(join_loc(l.get("city"), l.get("region"), l.get("country")) for l in locs)
+        remote = j.get("telecommuting") is True
+        if remote:
+            text = (text + "; Remote").strip("; ")
+        country = (locs[0].get("countryCode") or locs[0].get("country")) if len(locs) == 1 else None
+        jobs.append(job(f"workable:{slug.lower()}:{j.get('shortcode')}", company, j.get("title"), text,
+                        j.get("url") or j.get("application_url"), parse_time(j.get("published_on")),
+                        "remote" if remote else None, remote or None, country))
+    return jobs
+
+
+def get_smartrecruiters(slug, discovery=False):
+    jobs, offset = [], 0
+    query = "" if discovery else "&q=designer"
+    while True:
+        data = fetch_json(f"https://api.smartrecruiters.com/v1/companies/{urllib.parse.quote(slug)}/postings"
+                          f"?limit=100&offset={offset}{query}")
+        content = data.get("content") or []
+        for j in content:
+            loc = j.get("location") or {}
+            wp = "remote" if loc.get("remote") else "hybrid" if loc.get("hybrid") else "on-site"
+            text = loc.get("fullLocation") or join_loc(loc.get("city"), loc.get("region"), loc.get("country"))
+            if loc.get("remote"):
+                text += "; Remote"
+            jobs.append(job(f"smartrecruiters:{slug.lower()}:{j.get('id')}",
+                            (j.get("company") or {}).get("name") or pretty(slug), j.get("name"), text,
+                            f"https://jobs.smartrecruiters.com/{slug}/{j.get('id')}", parse_time(j.get("releasedDate")),
+                            wp, bool(loc.get("remote")), loc.get("country")))
+        offset += len(content)
+        if discovery or not content or offset >= int(data.get("totalFound") or 0) or offset >= 300:
+            return jobs
+
+
+def get_recruitee(slug, discovery=False):
+    data = fetch_json(f"https://{urllib.parse.quote(slug)}.recruitee.com/api/offers/")
+    jobs = []
+    for j in data.get("offers", []):
+        if j.get("status") not in (None, "published"):
+            continue
+        remote = j.get("remote") is True
+        wp = "remote" if remote else "hybrid" if j.get("hybrid") else None
+        text = j.get("location") or join_loc(j.get("city"), j.get("country"))
+        if remote and "remote" not in text.lower():
+            text += "; Remote"
+        jobs.append(job(f"recruitee:{slug.lower()}:{j.get('id')}", j.get("company_name") or pretty(slug), j.get("title"),
+                        text, j.get("careers_url") or j.get("careers_apply_url"), parse_time(j.get("published_at")),
+                        wp, remote or None, j.get("country_code")))
+    return jobs
+
+
+def get_bamboohr(slug, discovery=False):
+    data = fetch_json(f"https://{urllib.parse.quote(slug)}.bamboohr.com/careers/list")
+    jobs = []
+    for j in data.get("result", []):
+        loc = j.get("location") or {}
+        ats = j.get("atsLocation") or {}
+        remote = j.get("isRemote") is True
+        text = join_loc(loc.get("city") or ats.get("city"), loc.get("state") or ats.get("state"),
+                        ats.get("country") or loc.get("country"))
+        if remote:
+            text = (text + "; Remote").strip("; ")
+        jobs.append(job(f"bamboohr:{slug.lower()}:{j.get('id')}", pretty(slug), j.get("jobOpeningName"), text,
+                        f"https://{slug}.bamboohr.com/careers/{j.get('id')}", None,
+                        "remote" if remote else None, remote or None, ats.get("country") or loc.get("country")))
+    return jobs
+
+
+def get_breezy(slug, discovery=False):
+    data = fetch_json(f"https://{urllib.parse.quote(slug)}.breezy.hr/json")
+    jobs = []
+    for j in data if isinstance(data, list) else []:
+        loc = j.get("location") or {}
+        country = (loc.get("country") or {}).get("name") if isinstance(loc.get("country"), dict) else loc.get("country")
+        remote = loc.get("is_remote") is True
+        text = loc.get("name") or join_loc(loc.get("city"), country)
+        if remote and "remote" not in text.lower():
+            text += "; Remote"
+        jobs.append(job(f"breezy:{slug.lower()}:{j.get('id')}", (j.get("company") or {}).get("name") or pretty(slug),
+                        j.get("name"), text, j.get("url"), parse_time(j.get("published_date")),
+                        "remote" if remote else None, remote or None, country))
+    return jobs
+
+
+SEEN_IDS = set()   # filled in by main() so Workday details aren't fetched again for known jobs
+
+
+def get_workday(slug, discovery=False):
+    host, site = slug.split("/", 1)
+    tenant = host.split(".")[0]
+    base = f"https://{host}.myworkdayjobs.com"
+    api = f"{base}/wday/cxs/{tenant}/{site}"
+    searches = [""] if discovery else ["product designer", "ux designer", "ui designer"]
+    jobs, seen_paths = [], set()
+    for text in searches:
+        data = fetch_json(f"{api}/jobs", {"appliedFacets": {}, "limit": 20, "offset": 0, "searchText": text})
+        for p in data.get("jobPostings") or []:
+            path = p.get("externalPath") or ""
+            if not path or path in seen_paths:
+                continue
+            seen_paths.add(path)
+            jid = f"workday:{slug.lower()}:{path.rsplit('_', 1)[-1]}"
+            title = p.get("title") or ""
+            loc_text = p.get("locationsText") or ""
+            entry = job(jid, pretty(tenant), title, loc_text, f"{base}/{site}{path}")
+            # Only look up full details for new jobs whose title is a match.
+            if not discovery and jid not in SEEN_IDS and title_ok(title):
+                try:
+                    info = fetch_json(f"{api}{path}").get("jobPostingInfo") or {}
+                    locs = [info.get("location")] + list(info.get("additionalLocations") or [])
+                    entry["location"] = "; ".join(l for l in locs if l) or loc_text
+                    entry["country"] = (info.get("country") or {}).get("descriptor")
+                    entry["posted"] = parse_time(info.get("startDate"))
+                    entry["url"] = info.get("externalUrl") or entry["url"]
+                    if "remote" in entry["location"].lower():
+                        entry["workplace"] = "remote"
+                        entry["country"] = None  # remote roles may list several countries; judge by location text
+                except Exception:
+                    pass
+            jobs.append(entry)
+    return jobs
+
+
+FETCHERS = {"greenhouse": get_greenhouse, "lever": get_lever, "ashby": get_ashby, "workable": get_workable,
+            "smartrecruiters": get_smartrecruiters, "recruitee": get_recruitee, "bamboohr": get_bamboohr,
+            "breezy": get_breezy, "workday": get_workday}
 
 
 def check_company(company):
@@ -230,12 +396,15 @@ def looks_us_or_remote(job):
             or country in ("us", "usa", "united states") or bool(US_RE.search(loc)) or bool(US_CODE_RE.search(loc)))
 
 
+def title_ok(title):
+    title = (title or "").lower()
+    return (any(t.lower() in title for t in SETTINGS.get("include_titles", []))
+            and not any(word_in(t, title) for t in SETTINGS.get("exclude_titles", [])))
+
+
 def matches(job):
     """Returns (is_match, note_for_email)."""
-    title = job["title"].lower()
-    if not any(t.lower() in title for t in SETTINGS.get("include_titles", [])):
-        return False, None
-    if any(word_in(t, title) for t in SETTINGS.get("exclude_titles", [])):
+    if not title_ok(job["title"]):
         return False, None
 
     loc = job["location"] or ""
@@ -412,6 +581,7 @@ def main():
     fails = state.setdefault("fails", {})
     dropped = set(state.get("dropped", []))
 
+    SEEN_IDS.update(seen)
     to_check = [c for c in companies if not (c[2] == "discovered" and f"{c[0]}:{c[1].lower()}" in dropped)]
     with ThreadPoolExecutor(max_workers=24) as pool:
         results = list(pool.map(check_company, to_check))
@@ -435,13 +605,13 @@ def main():
         newly_added = key not in known_companies
         quiet = newly_added and source == "discovered" and not first_run
         for job in jobs:
+            if job["id"] in seen:
+                seen[job["id"]] = NOW.isoformat()  # still open; refresh so it isn't pruned
+                continue
             ok, note = matches(job)
             if not ok:
                 continue
             job["note"] = note
-            if job["id"] in seen:
-                seen[job["id"]] = NOW.isoformat()  # still open; refresh so it isn't pruned
-                continue
             seen[job["id"]] = NOW.isoformat()
             if quiet:
                 # A company the finder just added: only mention roles that are still fresh.
