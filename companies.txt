@@ -13,7 +13,7 @@
 # This starter list hasn't been checked against the live sites yet.
 # Your first email lists any that don't work so you can fix or remove them.
 
-# --- Restaurant, hospitality and commerce tech (closest to your Qu experience)
+# --- Restaurant, hospitality and commerce tech
 greenhouse toast
 lever olo
 # SevenRooms is now part of DoorDash; covered by doordashusa above
