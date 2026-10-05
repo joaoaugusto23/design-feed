@@ -188,7 +188,7 @@ US_STATES = ("alabama|alaska|arizona|arkansas|california|colorado|connecticut|de
              "wisconsin|wyoming")
 US_CODES = ("AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|"
             "NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC")
-US_RE = re.compile(r"\b(united states|usa|u\.s\.a?\.?|us|north america|americas|nationwide|" + US_STATES + r")\b", re.I)
+US_RE = re.compile(r"(?<![\w.])(united states|usa|u\.s\.a?\.?|us|north america|americas|nationwide|" + US_STATES + r")(?![\w])", re.I)
 US_CODE_RE = re.compile(r",\s*(" + US_CODES + r")\b")
 NON_US_RE = re.compile(
     r"\b(canada|toronto|vancouver|montreal|mexico|brazil|brasil|são paulo|sao paulo|latam|latin america|argentina|"
