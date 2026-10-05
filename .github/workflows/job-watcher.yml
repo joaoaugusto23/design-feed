@@ -2,7 +2,7 @@ name: Job watcher
 
 on:
   schedule:
-    - cron: "*/30 * * * *"   # every 30 minutes (private repo, stays within free minutes)
+    - cron: "*/10 * * * *"   # every 10 minutes
   workflow_dispatch:          # adds a "Run workflow" button for manual runs
 
 permissions:
