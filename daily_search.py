@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
 """
-Daily search: looks for design jobs posted in the last 24 hours on the hiring systems
-the watcher reads, using the Brave Search API. Any company it finds that isn't
-already watched is added to discovered.txt, so the watcher starts checking it and
-emails you its fresh roles.
+Daily company search: uses the Brave Search API to find companies that have posted
+design jobs on the hiring systems the watcher reads. Any company it finds that isn't
+already watched (and currently has US or remote openings) is added to discovered.txt,
+so the watcher starts checking it every 10 minutes.
 
-Runs twice a day on GitHub (see .github/workflows/daily-search.yml).
+Search engines learn about job pages weeks after they're posted, so this is for finding
+companies, not for fast alerts; the watcher handles speed. Each day it reads a different
+page of results, so over five days it covers the top 100 results for every search.
+
+Runs once a day on GitHub (see .github/workflows/daily-search.yml).
 Needs a BRAVE_API_KEY secret. Without one it does nothing.
 
 Cost safety: Brave gives about 1,000 free searches a month. This script uses
-about 600 and stops for the month at MONTHLY_LIMIT, so it stays inside the free credit.
+about 600 (20 a day) and stops for the month at MONTHLY_LIMIT, so it stays inside the free credit.
 """
 import json
 import os
@@ -27,7 +31,8 @@ USAGE_FILE = ROOT / "search_usage.json"
 OUT_FILE = discover.OUT_FILE
 MONTHLY_LIMIT = 800
 
-TITLES = '("product designer" OR "ux designer" OR "ui designer" OR "ux/ui designer")'
+TITLES = ['"product designer"', '"ux designer"']   # simple searches; Brave ignores complex OR searches
+PAGES_IN_ROTATION = 5                                  # result pages 1-5, one per day
 SITES = [
     "job-boards.greenhouse.io", "boards.greenhouse.io", "jobs.lever.co", "jobs.ashbyhq.com",
     "myworkdayjobs.com", "jobs.smartrecruiters.com", "apply.workable.com",
@@ -49,8 +54,8 @@ def load_usage():
     return usage
 
 
-def brave_search(key, query):
-    params = urllib.parse.urlencode({"q": query, "count": 20, "freshness": "pd", "country": "US"})
+def brave_search(key, query, page=0):
+    params = urllib.parse.urlencode({"q": query, "count": 20, "offset": page})
     req = urllib.request.Request(f"https://api.search.brave.com/res/v1/web/search?{params}",
                                  headers={"Accept": "application/json", "X-Subscription-Token": key})
     with urllib.request.urlopen(req, timeout=30) as r:
@@ -65,24 +70,27 @@ def main():
         return
     usage = load_usage()
 
+    page = datetime.now(timezone.utc).timetuple().tm_yday % PAGES_IN_ROTATION
+    print(f"Reading results page {page + 1} of {PAGES_IN_ROTATION} today.")
     found = set()
-    for site in SITES:
-        if usage["searches"] >= MONTHLY_LIMIT:
-            print(f"Reached this month's limit of {MONTHLY_LIMIT} searches; stopping to stay within the free credit.")
-            break
-        query = f"{TITLES} remote site:{site}"
-        try:
-            urls = brave_search(key, query)
-        except Exception as e:
-            print(f"{site}: search failed ({e})")
-            urls = []
-        usage["searches"] += 1
-        for url in urls:
-            c = watcher.parse_company(url)
-            if c:
-                found.add(c)
-        print(f"{site}: {len(urls)} results")
-        time.sleep(1.2)  # the free plan allows about one search per second
+    for title in TITLES:
+        for site in SITES:
+            if usage["searches"] >= MONTHLY_LIMIT:
+                print(f"Reached this month's limit of {MONTHLY_LIMIT} searches; stopping to stay within the free credit.")
+                break
+            query = f"{title} site:{site}"
+            try:
+                urls = brave_search(key, query, page)
+            except Exception as e:
+                print(f"{query}: search failed ({e})")
+                urls = []
+            usage["searches"] += 1
+            for url in urls:
+                c = watcher.parse_company(url)
+                if c:
+                    found.add(c)
+            print(f"{query}: {len(urls)} results")
+            time.sleep(1.2)  # about one search per second
     USAGE_FILE.write_text(json.dumps(usage, indent=1) + "\n", encoding="utf-8")
     print(f"Searches used this month: {usage['searches']} of {MONTHLY_LIMIT}.")
 
@@ -96,7 +104,7 @@ def main():
             slug = slug.lower()
         if (ats, slug.lower()) not in known_keys:
             candidates.append((ats, slug))
-    print(f"{len(found)} companies in today's results; {len(candidates)} not watched yet.")
+    print(f"{len(found)} companies in today's results; {len(candidates)} not watched yet; testing them.")
 
     added = [c for c, ok in map(discover.worth_watching, candidates) if ok]
     if added:
