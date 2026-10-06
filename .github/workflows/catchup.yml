@@ -1,0 +1,22 @@
+name: One-time catch-up
+
+on:
+  workflow_dispatch:   # run by hand only
+
+jobs:
+  catchup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Email roles posted 4 to 7 days ago
+        env:
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          ALERT_TO: ${{ secrets.ALERT_TO }}
+        run: python catchup.py
