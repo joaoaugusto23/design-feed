@@ -28,7 +28,7 @@ PATTERNS = [  # most useful first, in case the archive is slow and time runs out
     "*.myworkdayjobs.com", "jobs.smartrecruiters.com/*", "apply.workable.com/*",
     "*.breezy.hr", "*.bamboohr.com", "*.recruitee.com",
 ]
-CRAWLS_TO_USE = 1                # the most recent archive
+CRAWLS_TO_USE = 3                # the three most recent archives (one alone can miss a whole site)
 MAX_PAGES_PER_PATTERN = 300      # safety limit per site
 TIME_PER_PATTERN = 10 * 60       # seconds per site, so one slow site can't use up the whole run
 HARVEST_TIME_LIMIT = 100 * 60    # seconds spent reading the archive, at most
