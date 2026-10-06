@@ -565,8 +565,8 @@ def send_email(subject, text, html):
 
 # ---------------------------------------------------------------- main
 
-RECENT_DAYS = 3        # for newly found companies, still mention roles posted this recently
-MAX_RECENT_LISTED = 40
+RECENT_DAYS = 7        # for newly found companies, still mention roles posted this recently
+MAX_RECENT_LISTED = 60
 DROP_AFTER_404S = 3    # auto-found companies are dropped after this many "not found" checks in a row
 
 
