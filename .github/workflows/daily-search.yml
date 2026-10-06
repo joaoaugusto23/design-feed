@@ -1,0 +1,42 @@
+name: Daily search
+
+on:
+  schedule:
+    - cron: "0 11,23 * * *"   # 7 a.m. and 7 p.m. US Eastern (summer time)
+  workflow_dispatch:           # adds a "Run workflow" button
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-search
+  cancel-in-progress: false
+
+jobs:
+  search:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Search for new companies
+        env:
+          BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
+        run: python daily_search.py
+
+      - name: Save
+        run: |
+          git config user.name "job-watcher"
+          git config user.email "job-watcher@users.noreply.github.com"
+          for f in discovered.txt search_usage.json; do if [ -f "$f" ]; then git add "$f"; fi; done
+          if git diff --cached --quiet; then
+            echo "No changes."
+          else
+            git commit -m "Daily search: add newly found companies"
+            git pull --rebase
+            git push
+          fi
