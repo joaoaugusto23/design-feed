@@ -5,8 +5,12 @@ keeps the ones that currently have US or remote openings, and saves them to
 discovered.txt so the watcher checks them too.
 
 Where the company names come from: Common Crawl (commoncrawl.org), a free public
-archive of the web. Its index lists every job page it has saved on those three
-sites, and each address contains the company's job-board name.
+archive of the web. Its index lists every job page it has saved on those sites,
+and each address contains the company's job-board name.
+
+Lever is a special case: recent archives contain very few Lever pages, so the finder
+also reads older archives for Lever. Old names are fine, because every company is
+tested and only kept if its job page is live with US or remote openings today.
 
 Runs once a week on GitHub (see .github/workflows/discover.yml). You don't need to edit it.
 """
@@ -28,10 +32,13 @@ PATTERNS = [  # most useful first, in case the archive is slow and time runs out
     "*.myworkdayjobs.com", "jobs.smartrecruiters.com/*", "apply.workable.com/*",
     "*.breezy.hr", "*.bamboohr.com", "*.recruitee.com",
 ]
-CRAWLS_TO_USE = 3                # the three most recent archives (one alone can miss a whole site)
-MAX_PAGES_PER_PATTERN = 300      # safety limit per site
-TIME_PER_PATTERN = 10 * 60       # seconds per site, so one slow site can't use up the whole run
-HARVEST_TIME_LIMIT = 100 * 60    # seconds spent reading the archive, at most
+CRAWLS_TO_USE = 3  # the three most recent archives (one alone can miss a whole site)
+# Sites the recent archives barely cover: also read this many older archives for them.
+EXTRA_CRAWLS = {"jobs.lever.co/*": 30}
+MAX_PAGES_PER_PATTERN = 300  # safety limit per site
+TIME_PER_PATTERN = 10 * 60  # seconds per site, so one slow site can't use up the whole run
+EXTRA_TIME_LIMIT = 20 * 60  # seconds for reading the older archives, in total
+HARVEST_TIME_LIMIT = 100 * 60  # seconds spent reading the archive, at most
 LOWERCASE_NAMES = {"greenhouse", "lever", "recruitee", "bamboohr", "breezy"}
 
 
@@ -54,45 +61,62 @@ def get_retry(url, tries=4):
             wait *= 3
 
 
+def read_pattern(crawl, pattern, found, deadline):
+    """Read one site's pages from one archive into found. Returns False once the deadline passes."""
+    api = crawl["cdx-api"]
+    q = f"{api}?url={urllib.parse.quote(pattern, safe='*/')}&output=json"
+    try:
+        pages = int(json.loads(get_retry(q + "&showNumPages=true")).get("pages", 0))
+    except Exception as e:
+        print(f"{crawl['id']} {pattern}: couldn't get page count ({e})")
+        return time.time() < deadline
+    pages = min(pages, MAX_PAGES_PER_PATTERN)
+    print(f"{crawl['id']} {pattern}: reading {pages} pages")
+    before = len(found)
+    pattern_started = time.time()
+    for page in range(pages):
+        if time.time() > deadline:
+            return False
+        if time.time() - pattern_started > TIME_PER_PATTERN:
+            print(f"  moving on after {page} pages (time limit for this site)")
+            break
+        try:
+            text = get_retry(f"{q}&fl=url&page={page}")
+        except Exception as e:
+            print(f"  page {page} skipped ({e})")
+            continue
+        for line in text.splitlines():
+            try:
+                url = json.loads(line).get("url", "")
+            except ValueError:
+                continue
+            c = watcher.parse_company(url)
+            if c and len(c[1]) > 1:
+                found.add((c[0], c[1]))
+    print(f"  +{len(found) - before} boards (total {len(found)})")
+    return time.time() < deadline
+
+
 def harvest():
     """Collect (ats, slug) pairs from the Common Crawl index."""
     started = time.time()
-    crawls = json.loads(get_retry("https://index.commoncrawl.org/collinfo.json"))[:CRAWLS_TO_USE]
+    deadline = started + HARVEST_TIME_LIMIT
+    all_crawls = json.loads(get_retry("https://index.commoncrawl.org/collinfo.json"))
     found = set()
-    for crawl in crawls:
-        api = crawl["cdx-api"]
+
+    for crawl in all_crawls[:CRAWLS_TO_USE]:
         for pattern in PATTERNS:
-            q = f"{api}?url={urllib.parse.quote(pattern, safe='*/')}&output=json"
-            try:
-                pages = int(json.loads(get_retry(q + "&showNumPages=true")).get("pages", 0))
-            except Exception as e:
-                print(f"{crawl['id']} {pattern}: couldn't get page count ({e})")
-                continue
-            pages = min(pages, MAX_PAGES_PER_PATTERN)
-            print(f"{crawl['id']} {pattern}: reading {pages} pages")
-            before = len(found)
-            pattern_started = time.time()
-            for page in range(pages):
-                if time.time() - started > HARVEST_TIME_LIMIT:
-                    print("Time limit reached; using what was collected so far.")
-                    return found
-                if time.time() - pattern_started > TIME_PER_PATTERN:
-                    print(f"  moving on after {page} pages (time limit for this site)")
-                    break
-                try:
-                    text = get_retry(f"{q}&fl=url&page={page}")
-                except Exception as e:
-                    print(f"  page {page} skipped ({e})")
-                    continue
-                for line in text.splitlines():
-                    try:
-                        url = json.loads(line).get("url", "")
-                    except ValueError:
-                        continue
-                    c = watcher.parse_company(url)
-                    if c and len(c[1]) > 1:
-                        found.add((c[0], c[1]))
-            print(f"  +{len(found) - before} boards (total {len(found)})")
+            if not read_pattern(crawl, pattern, found, deadline):
+                print("Time limit reached; using what was collected so far.")
+                return found
+
+    extra_deadline = min(deadline, time.time() + EXTRA_TIME_LIMIT)
+    for pattern, count in EXTRA_CRAWLS.items():
+        print(f"Reading older archives for {pattern}")
+        for crawl in all_crawls[CRAWLS_TO_USE:count]:
+            if not read_pattern(crawl, pattern, found, extra_deadline):
+                print("Time limit for older archives reached; using what was collected so far.")
+                return found
     return found
 
 
@@ -149,7 +173,12 @@ def main():
             if ok:
                 keep.add((ats, slug))
     added = len(keep) - len(existing)
-    print(f"Added {added} companies with US or remote openings. Total found automatically: {len(keep)}.")
+    by_system = {}
+    for a, _ in keep - existing:
+        by_system[a] = by_system.get(a, 0) + 1
+    print(f"Added {added} companies with US or remote openings "
+          f"({', '.join(f'{a}: {n}' for a, n in sorted(by_system.items())) or 'none'}). "
+          f"Total found automatically: {len(keep)}.")
 
     header = ("# Companies found automatically by discover.py (runs weekly).\n"
               "# Don't edit by hand; put your own picks in companies.txt instead.\n"
