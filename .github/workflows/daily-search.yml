@@ -1,8 +1,8 @@
-name: Daily search
+name: Daily company search
 
 on:
   schedule:
-    - cron: "0 11,23 * * *"   # 7 a.m. and 7 p.m. US Eastern (summer time)
+    - cron: "0 11 * * *"      # once a day, 7 a.m. US Eastern (summer time)
   workflow_dispatch:           # adds a "Run workflow" button
 
 permissions:
@@ -36,7 +36,7 @@ jobs:
           if git diff --cached --quiet; then
             echo "No changes."
           else
-            git commit -m "Daily search: add newly found companies"
+            git commit -m "Daily company search: add newly found companies"
             git pull --rebase
             git push
           fi
