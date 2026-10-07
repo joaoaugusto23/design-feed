@@ -16219,3 +16219,13 @@ workday ngs.wd1/ngs_external_career_site
 workday philips.wd3/jobs-and-careers
 workday prodege.wd108/Prodege_Careers
 workday starz.wd5/Starz
+ashby circle
+greenhouse epickids
+greenhouse syllo
+lever deliverect
+lever pattern
+lever saviynt
+lever wisecode
+lever zensurance
+smartrecruiters GudangAda
+workable savvytalent
