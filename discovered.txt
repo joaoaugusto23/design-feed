@@ -17978,3 +17978,6 @@ lever steerbridge
 lever virtualitics
 recruitee cowmanager
 smartrecruiters ShakerRecruitmentMarketing1
+ashby stealth
+recruitee wellis
+smartrecruiters Duelit
