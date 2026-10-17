@@ -1,11 +1,7 @@
 # Job watcher status
 
-Your list (companies.txt): watching 54 of 55 successfully.
+Your list (companies.txt): watching 55 of 55 successfully.
 
 Found automatically (discovered.txt): watching 17948 companies. 40 were dropped because their job pages no longer exist.
 
-## Needs attention
-
-These lines in companies.txt couldn't be checked. Fix the name or delete the line.
-
-- greenhouse 'webflow': not found (the company name in companies.txt may be wrong)
+Everything on your list is working.
