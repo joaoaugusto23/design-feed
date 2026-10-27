@@ -482,6 +482,34 @@ def linkedin_links(company):
     return [("LinkedIn: recruiters", search("recruiter")), ("LinkedIn: design team", search("design"))]
 
 
+def linkedin_job_searches():
+    """LinkedIn job searches showing only roles posted in the last hour, newest first."""
+    out = []
+    for words in SETTINGS.get("linkedin_searches", ["product designer"]):
+        params = {"keywords": words, "f_TPR": "r3600", "sortBy": "DD"}
+        if SETTINGS.get("require_remote", True):
+            params["f_WT"] = "2"
+        if SETTINGS.get("require_us", True):
+            params["geoId"] = "103644278"
+        out.append((words, "https://www.linkedin.com/jobs/search/?" + urllib.parse.urlencode(params)))
+    return out
+
+
+def linkedin_box():
+    searches = linkedin_job_searches()
+    if not searches:
+        return "", ""
+    h = ('<div style="background:#f3f5fa;border-radius:10px;padding:12px 14px;margin:6px 0 4px">'
+         '<div style="font-size:14px;font-weight:600">Also new on LinkedIn (posted in the last hour)</div>'
+         '<div style="margin-top:8px">'
+         + "".join(f'<a href="{escape(url)}" style="display:inline-block;border:1px solid #c9cfdc;color:#2f4bd8;'
+                   f'padding:6px 12px;border-radius:8px;text-decoration:none;font-size:14px;margin:0 6px 6px 0;'
+                   f'background:#fff">{escape(words.title())}</a>' for words, url in searches)
+         + '</div></div>')
+    t = "\nALSO NEW ON LINKEDIN (posted in the last hour)\n" + "\n".join(f"  {w}: {u}" for w, u in searches) + "\n"
+    return h, t
+
+
 def job_html(j):
     bits = [escape(j["company"])]
     if j["location"]:
@@ -563,10 +591,11 @@ def build_email(new, already, failed, problems, first_run, total):
               'You’ll hear from the watcher as soon as one appears.</p>')
         t2 = "\nNo matching roles are open right now. You'll get an email as soon as one appears.\n"
 
+    li_h, li_t = linkedin_box()
     html = (f'<div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;max-width:640px;'
             f'color:#1b2030;line-height:1.45"><p style="font-size:15px">{escape(lead)}</p>'
-            f'{h1}{h2}{fix_h}</div>')
-    text = f"{lead}\n{t1}{t2}{fix_t}"
+            f'{li_h}{h1}{h2}{fix_h}</div>')
+    text = f"{lead}\n{li_t}{t1}{t2}{fix_t}"
     return subject, text, html
 
 
