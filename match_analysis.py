@@ -147,38 +147,59 @@ def _ask_model(model, prompt, thinking=True):
         return json.loads(r.read().decode("utf-8"))
 
 
+RETRY_PAUSE = 4      # seconds to wait before one retry when Google says it is busy
+BUSY_CODES = (500, 502, 503, 504)
+
+
+class ModelError(Exception):
+    def __init__(self, code, detail):
+        super().__init__(f"{code}: {detail}")
+        self.code, self.detail = code, detail
+
+
+def _try_model(model, prompt):
+    """One model: drops the thinking setting if it's rejected, and retries once if Google is busy."""
+    thinking, busy_retried = True, False
+    while True:
+        try:
+            return _ask_model(model, prompt, thinking)
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode("utf-8", errors="replace").replace("\n", " ")
+            if e.code == 400 and thinking and "thinking" in detail.lower():
+                print(f"  Gemini model {model} rejected the thinking setting, retrying without it.")
+                thinking = False
+                continue
+            if e.code in BUSY_CODES and not busy_retried:
+                print(f"  Gemini model {model} is busy ({e.code}), retrying once.")
+                busy_retried = True
+                time.sleep(RETRY_PAUSE)
+                continue
+            raise ModelError(e.code, detail)
+
+
 def call_gemini(prompt):
     data = None
-    for model in MODELS:
+    for model in list(MODELS):
+        is_last = model == MODELS[-1]
         try:
-            try:
-                data = _ask_model(model, prompt)
-            except urllib.error.HTTPError as e:
-                if e.code != 400:
-                    raise
-                detail400 = e.read().decode("utf-8", errors="replace")
-                if "thinking" not in detail400.lower():
-                    e.read = lambda *a, _d=detail400.encode(): _d     # let the handler below show the real message
-                    raise
-                print(f"  Gemini model {model} rejected the thinking setting, retrying without it.")
-                data = _ask_model(model, prompt, thinking=False)
-            if MODELS[0] != model:
-                MODELS.remove(model)
-                MODELS.insert(0, model)      # remember the one that works for the rest of this run
-            break
-        except urllib.error.HTTPError as e:
-            detail = e.read().decode("utf-8", errors="replace")[:200].replace("\n", " ")
+            data = _try_model(model, prompt)
+        except ModelError as e:
             if e.code == 429:
                 raise RateLimited("Gemini free limit reached")
-            if e.code == 404 and model != MODELS[-1]:
-                print(f"  Gemini model {model} not found, trying the next one.")
+            error = RuntimeError(f"Gemini error {e.code} on {model}: {e.detail[:200]}")
+            if e.code in (404,) + BUSY_CODES and not is_last:
+                print(f"  Gemini model {model} unavailable ({e.code}), trying the next one.")
                 continue
-            raise RuntimeError(f"Gemini error {e.code} on {model}: {detail}")
-        except Exception as e:                  # timeout or network trouble: try the next model once
-            if model != MODELS[-1]:
+            raise error
+        except Exception as e:                  # timeout or network trouble: try the next model
+            if not is_last:
                 print(f"  Gemini model {model} didn't answer ({e}), trying the next one.")
                 continue
             raise RuntimeError(f"couldn't reach Gemini ({e})")
+        if MODELS[0] != model:
+            MODELS.remove(model)
+            MODELS.insert(0, model)             # remember the one that works for the rest of this run
+        break
     cands = data.get("candidates") or []
     if not cands:
         raise RuntimeError(f"Gemini returned no answer ({data.get('promptFeedback')})")
