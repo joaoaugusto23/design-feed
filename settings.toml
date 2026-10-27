@@ -62,3 +62,9 @@ linkedin_searches = [
   "product designer",
   "ux designer",
 ]
+
+# Built In link: only roles updated in the last N days (1 = past 24 hours, 3 = last 3 days).
+builtin_days = 1
+
+# Show a Wellfound Product Designer link in the alert email? (true or false)
+wellfound = true

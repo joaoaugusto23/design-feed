@@ -495,8 +495,22 @@ def linkedin_job_searches():
     return out
 
 
+def other_board_links():
+    """Built In (recent, remote, US) for each search phrase, plus Wellfound's Product Designer page."""
+    out = []
+    days = SETTINGS.get("builtin_days", 1)
+    for words in SETTINGS.get("linkedin_searches", ["product designer"]):
+        q = urllib.parse.urlencode({"search": words.title(), "daysSinceUpdated": days, "city": "", "state": "",
+                                    "country": "USA", "allLocations": "true"})
+        out.append((f"Built In: {words.title()}", "https://builtin.com/jobs/remote?" + q))
+    if SETTINGS.get("wellfound", True):
+        out.append(("Wellfound: Product Designer", "https://wellfound.com/role/r/product-designer"))
+    return out
+
+
 def linkedin_box():
     searches = linkedin_job_searches()
+    others = other_board_links()
     if not searches:
         return "", ""
     h = ('<div style="background:#f3f5fa;border-radius:10px;padding:12px 14px;margin:6px 0 4px">'
@@ -505,8 +519,15 @@ def linkedin_box():
          + "".join(f'<a href="{escape(url)}" style="display:inline-block;border:1px solid #c9cfdc;color:#2f4bd8;'
                    f'padding:6px 12px;border-radius:8px;text-decoration:none;font-size:14px;margin:0 6px 6px 0;'
                    f'background:#fff">{escape(words.title())}</a>' for words, url in searches)
+         + '</div>'
+         + '<div style="font-size:14px;font-weight:600;margin-top:6px">Other boards (recent, remote)</div>'
+         '<div style="margin-top:8px">'
+         + "".join(f'<a href="{escape(url)}" style="display:inline-block;border:1px solid #c9cfdc;color:#2f4bd8;'
+                   f'padding:6px 12px;border-radius:8px;text-decoration:none;font-size:14px;margin:0 6px 6px 0;'
+                   f'background:#fff">{escape(label)}</a>' for label, url in others)
          + '</div></div>')
-    t = "\nALSO NEW ON LINKEDIN (posted in the last hour)\n" + "\n".join(f"  {w}: {u}" for w, u in searches) + "\n"
+    t = ("\nALSO NEW ON LINKEDIN (posted in the last hour)\n" + "\n".join(f"  {w}: {u}" for w, u in searches)
+         + "\n\nOTHER BOARDS (recent, remote)\n" + "\n".join(f"  {l}: {u}" for l, u in others) + "\n")
     return h, t
 
 
