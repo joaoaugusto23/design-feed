@@ -22,6 +22,11 @@ from email.message import EmailMessage
 from html import escape
 from pathlib import Path
 
+try:
+    import match_analysis   # optional: adds a resume-fit block to each alert (needs Gemini secrets)
+except Exception:           # if the file is missing or broken, alerts still go out as before
+    match_analysis = None
+
 ROOT = Path(__file__).resolve().parent
 SEEN_FILE = ROOT / "seen.json"
 STATUS_FILE = ROOT / "status.md"
@@ -480,6 +485,8 @@ def job_html(j):
         extra += f'<div style="color:#3b4255;font-size:14px;margin-top:2px">Pay: {escape(str(j["pay"]))}</div>'
     if j.get("note"):
         extra += f'<div style="color:#8a5a00;font-size:14px;margin-top:2px">{escape(j["note"])}</div>'
+    if j.get("analysis") and match_analysis:
+        extra += match_analysis.render_html(j["analysis"])
     return (f'<tr><td style="padding:14px 0;border-bottom:1px solid #e3e6ee">'
             f'<a href="{escape(j["url"])}" style="font-size:17px;font-weight:600;color:#2f4bd8;text-decoration:none">'
             f'{escape(j["title"])}</a>'
@@ -493,7 +500,9 @@ def job_text(j):
     parts = [f"{j['title']} at {j['company']}", f"  {j['location']}" if j["location"] else None,
              f"  {age(j['posted'])}" if j["posted"] else None,
              f"  Pay: {j['pay']}" if j.get("pay") else None,
-             f"  Note: {j['note']}" if j.get("note") else None, f"  {j['url']}"]
+             f"  Note: {j['note']}" if j.get("note") else None,
+             match_analysis.render_text(j["analysis"]) if j.get("analysis") and match_analysis else None,
+             f"  {j['url']}"]
     return "\n".join(p for p in parts if p)
 
 
@@ -639,6 +648,11 @@ def main():
     print(f"Checked {len(to_check)} companies ({counts['discovered']} found automatically). "
           f"New: {len(new)}. Already open: {len(already)}.")
 
+    if (first_run or new or already) and match_analysis:
+        try:
+            match_analysis.analyze_jobs(new + already)   # newest first; skips quietly if not set up
+        except Exception as e:
+            print(f"Match analysis skipped: {e}")
     if first_run or new or already:
         send_email(*build_email(new, already, failed, problems, first_run, len(to_check)))
     if not DRY_RUN:
