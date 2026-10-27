@@ -54,3 +54,11 @@ require_us = true
 # true = email them to you anyway, with a note to double-check.
 # false = skip them.
 include_unclear_location = true
+
+# LinkedIn searches shown at the top of every alert email.
+# Each one opens LinkedIn jobs posted in the last hour, newest first,
+# using the remote and US settings above. Add or remove phrases as you like.
+linkedin_searches = [
+  "product designer",
+  "ux designer",
+]
