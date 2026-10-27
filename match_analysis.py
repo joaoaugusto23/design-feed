@@ -130,14 +130,17 @@ Return JSON only, with exactly these keys:
 def _ask_model(model, prompt):
     key = os.environ.get("GEMINI_API_KEY", "").strip()
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{urllib.parse.quote(model)}:generateContent"
+    config = {"temperature": 0.2, "responseMimeType": "application/json", "maxOutputTokens": 1500}
+    if "2.5" in model:
+        config["thinkingConfig"] = {"thinkingBudget": 0}   # no long "thinking" phase: much faster, plenty for this task
     body = json.dumps({
         "systemInstruction": {"parts": [{"text": SYSTEM}]},
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.2, "responseMimeType": "application/json"},
+        "generationConfig": config,
     }).encode("utf-8")
     req = urllib.request.Request(url, data=body, headers={
         "Content-Type": "application/json", "x-goog-api-key": key})
-    with urllib.request.urlopen(req, timeout=90) as r:
+    with urllib.request.urlopen(req, timeout=40) as r:
         return json.loads(r.read().decode("utf-8"))
 
 
@@ -158,7 +161,10 @@ def call_gemini(prompt):
                 print(f"  Gemini model {model} not found, trying the next one.")
                 continue
             raise RuntimeError(f"Gemini error {e.code} on {model}: {detail}")
-        except Exception as e:
+        except Exception as e:                  # timeout or network trouble: try the next model once
+            if model != MODELS[-1]:
+                print(f"  Gemini model {model} didn't answer ({e}), trying the next one.")
+                continue
             raise RuntimeError(f"couldn't reach Gemini ({e})")
     cands = data.get("candidates") or []
     if not cands:
@@ -212,7 +218,11 @@ def analyze_jobs(jobs, call=None, describe=None, sleep=time.sleep):
     describe = describe or fetch_description
     started = time.time()
     done = 0
+    failures = 0
     for j in jobs[:MAX_JOBS_PER_RUN]:
+        if failures >= 2:                       # Gemini looks down: don't wait on every remaining role
+            j["analysis_note"] = "skipped after repeated Gemini errors"
+            continue
         if time.time() - started > TIME_BUDGET_SECONDS:
             print("Match analysis stopped early to stay within the time budget.")
             j["analysis_note"] = "not analyzed (time budget for this email reached)"
@@ -228,6 +238,7 @@ def analyze_jobs(jobs, call=None, describe=None, sleep=time.sleep):
                 location_line=f"LOCATION: {j['location']}" if j.get("location") else "", jd=jd)
             j["analysis"] = call(prompt)
             done += 1
+            failures = 0
             sleep(SECONDS_BETWEEN_CALLS)
         except RateLimited as e:
             print(f"Match analysis stopped: {e}.")
@@ -238,6 +249,7 @@ def analyze_jobs(jobs, call=None, describe=None, sleep=time.sleep):
         except Exception as e:
             print(f"  Match analysis failed for {j['title']} at {j['company']}: {e}")
             j["analysis_note"] = str(e)[:240]
+            failures += 1
     print(f"Match analysis: {done} of {min(len(jobs), MAX_JOBS_PER_RUN)} roles analyzed.")
 
 
