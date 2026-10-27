@@ -1,0 +1,52 @@
+name: Analyze a job
+
+# A button for checking one job against your resume. Open the Actions tab, click "Analyze a job",
+# click "Run workflow", paste a job link (or the job description text), and run it.
+# A minute later you get an email with the fit score, gaps and resume tweaks.
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_url:
+        description: "Link to the job posting (leave empty if you paste the text below)"
+        required: false
+        default: ""
+      job_text:
+        description: "Or paste the job description text (use this when a site blocks links, like LinkedIn)"
+        required: false
+        default: ""
+      job_title:
+        description: "Job title (optional, only needed with pasted text)"
+        required: false
+        default: ""
+      job_company:
+        description: "Company name (optional, only needed with pasted text)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Compare the job with your resume
+        env:
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          ALERT_TO: ${{ secrets.ALERT_TO }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          RESUME_TEXT: ${{ secrets.RESUME_TEXT }}
+          JOB_URL: ${{ inputs.job_url }}
+          JOB_TEXT: ${{ inputs.job_text }}
+          JOB_TITLE: ${{ inputs.job_title }}
+          JOB_COMPANY: ${{ inputs.job_company }}
+        run: python analyze_job.py
