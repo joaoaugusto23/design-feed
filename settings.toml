@@ -12,6 +12,15 @@ include_titles = [
   "product design lead",
   "lead designer",
   "designer, product",
+  "product design",
+  "ux design",
+  "ui design",
+  "experience designer",
+  "interaction designer",
+  "design systems designer",
+  "design lead",
+  "designer, ux",
+  "designer, ui",
 ]
 
 # A job is skipped if its title has any of these words.
@@ -29,6 +38,8 @@ exclude_titles = [
   "brand",
   "marketing",
   "motion",
+  "learning",
+  "instructional",
   "manager",
   "director",
 ]
