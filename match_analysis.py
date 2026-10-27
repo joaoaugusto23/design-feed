@@ -25,9 +25,9 @@ import urllib.request
 from html import escape, unescape
 
 MODEL = os.environ.get("GEMINI_MODEL", "").strip() or "gemini-2.5-flash"
-MAX_JOBS_PER_RUN = 15          # most roles analyzed in one email
+MAX_JOBS_PER_RUN = 10          # most roles analyzed in one email
 SECONDS_BETWEEN_CALLS = 5      # keeps us under the free tier's per-minute limit
-TIME_BUDGET_SECONDS = 240      # stop analyzing after this long, send the email anyway
+TIME_BUDGET_SECONDS = 90       # stop analyzing after this long, send the email anyway
 MAX_JD_CHARS = 12000
 MAX_RESUME_CHARS = 15000
 

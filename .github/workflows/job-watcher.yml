@@ -1,28 +1,28 @@
 name: Job watcher
- 
+
 on:
   schedule:
     - cron: "*/10 * * * *"   # every 10 minutes
   workflow_dispatch:          # adds a "Run workflow" button for manual runs
- 
+
 permissions:
   contents: write             # lets it save which jobs it has already seen
- 
+
 concurrency:
   group: job-watcher
   cancel-in-progress: false
- 
+
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
- 
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
- 
+
       - name: Check for new roles
         env:
           GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
@@ -31,7 +31,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           RESUME_TEXT: ${{ secrets.RESUME_TEXT }}
         run: python watcher.py
- 
+
       - name: Remember what was seen
         run: |
           git config user.name "job-watcher"
