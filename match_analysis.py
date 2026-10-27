@@ -24,7 +24,10 @@ import urllib.parse
 import urllib.request
 from html import escape, unescape
 
-MODEL = os.environ.get("GEMINI_MODEL", "").strip() or "gemini-2.5-flash"
+# Set a GEMINI_MODEL variable to force one model. Otherwise these are tried in order,
+# moving to the next if Google says a model name doesn't exist (they retire old ones).
+MODELS = [os.environ["GEMINI_MODEL"].strip()] if os.environ.get("GEMINI_MODEL", "").strip() else \
+    ["gemini-2.5-flash", "gemini-flash-latest", "gemini-2.0-flash"]
 MAX_JOBS_PER_RUN = 10          # most roles analyzed in one email
 SECONDS_BETWEEN_CALLS = 5      # keeps us under the free tier's per-minute limit
 TIME_BUDGET_SECONDS = 90       # stop analyzing after this long, send the email anyway
@@ -124,9 +127,9 @@ Return JSON only, with exactly these keys:
 }}"""
 
 
-def call_gemini(prompt):
+def _ask_model(model, prompt):
     key = os.environ.get("GEMINI_API_KEY", "").strip()
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{urllib.parse.quote(MODEL)}:generateContent"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{urllib.parse.quote(model)}:generateContent"
     body = json.dumps({
         "systemInstruction": {"parts": [{"text": SYSTEM}]},
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
@@ -134,13 +137,29 @@ def call_gemini(prompt):
     }).encode("utf-8")
     req = urllib.request.Request(url, data=body, headers={
         "Content-Type": "application/json", "x-goog-api-key": key})
-    try:
-        with urllib.request.urlopen(req, timeout=60) as r:
-            data = json.loads(r.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        if e.code == 429:
-            raise RateLimited("Gemini free limit reached")
-        raise RuntimeError(f"Gemini error {e.code}: {e.read().decode('utf-8', errors='replace')[:200]}")
+    with urllib.request.urlopen(req, timeout=90) as r:
+        return json.loads(r.read().decode("utf-8"))
+
+
+def call_gemini(prompt):
+    data = None
+    for model in MODELS:
+        try:
+            data = _ask_model(model, prompt)
+            if MODELS[0] != model:
+                MODELS.remove(model)
+                MODELS.insert(0, model)      # remember the one that works for the rest of this run
+            break
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode("utf-8", errors="replace")[:200].replace("\n", " ")
+            if e.code == 429:
+                raise RateLimited("Gemini free limit reached")
+            if e.code == 404 and model != MODELS[-1]:
+                print(f"  Gemini model {model} not found, trying the next one.")
+                continue
+            raise RuntimeError(f"Gemini error {e.code} on {model}: {detail}")
+        except Exception as e:
+            raise RuntimeError(f"couldn't reach Gemini ({e})")
     cands = data.get("candidates") or []
     if not cands:
         raise RuntimeError(f"Gemini returned no answer ({data.get('promptFeedback')})")
@@ -196,11 +215,13 @@ def analyze_jobs(jobs, call=None, describe=None, sleep=time.sleep):
     for j in jobs[:MAX_JOBS_PER_RUN]:
         if time.time() - started > TIME_BUDGET_SECONDS:
             print("Match analysis stopped early to stay within the time budget.")
-            break
+            j["analysis_note"] = "not analyzed (time budget for this email reached)"
+            continue
         try:
             jd = describe(j)
             if len(jd) < 150:
                 print(f"  Skipped {j['title']} at {j['company']}: couldn't read the description.")
+                j["analysis_note"] = "couldn't read the job description from the company's page"
                 continue
             prompt = PROMPT.format(
                 resume=resume[:MAX_RESUME_CHARS], title=j["title"], company=j["company"],
@@ -210,9 +231,13 @@ def analyze_jobs(jobs, call=None, describe=None, sleep=time.sleep):
             sleep(SECONDS_BETWEEN_CALLS)
         except RateLimited as e:
             print(f"Match analysis stopped: {e}.")
+            j["analysis_note"] = "Gemini's free limit was reached, try again later"
+            for rest in jobs[jobs.index(j) + 1:MAX_JOBS_PER_RUN]:
+                rest["analysis_note"] = "Gemini's free limit was reached, try again later"
             break
         except Exception as e:
             print(f"  Match analysis failed for {j['title']} at {j['company']}: {e}")
+            j["analysis_note"] = str(e)[:240]
     print(f"Match analysis: {done} of {min(len(jobs), MAX_JOBS_PER_RUN)} roles analyzed.")
 
 
@@ -248,6 +273,15 @@ def render_html(a):
             f'padding:2px 8px;border-radius:6px">Fit {a["score"]}/100 &middot; {escape(a["verdict"])}</span>'
             f'{block("Matches", a["matches"])}{block("Gaps", a["gaps"])}{lead}'
             f'{block("Resume tweaks", a["tweaks"])}{kw}</div>')
+
+
+def render_note_html(note):
+    return (f'<div style="margin-top:8px;font-size:12px;color:#8a5a00">'
+            f'Resume match unavailable: {escape(note)}</div>')
+
+
+def render_note_text(note):
+    return f"  Resume match unavailable: {note}"
 
 
 def render_text(a):

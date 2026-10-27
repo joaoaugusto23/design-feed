@@ -485,8 +485,11 @@ def job_html(j):
         extra += f'<div style="color:#3b4255;font-size:14px;margin-top:2px">Pay: {escape(str(j["pay"]))}</div>'
     if j.get("note"):
         extra += f'<div style="color:#8a5a00;font-size:14px;margin-top:2px">{escape(j["note"])}</div>'
-    if j.get("analysis") and match_analysis:
-        extra += match_analysis.render_html(j["analysis"])
+    if match_analysis:
+        if j.get("analysis"):
+            extra += match_analysis.render_html(j["analysis"])
+        elif j.get("analysis_note"):
+            extra += match_analysis.render_note_html(j["analysis_note"])
     return (f'<tr><td style="padding:14px 0;border-bottom:1px solid #e3e6ee">'
             f'<a href="{escape(j["url"])}" style="font-size:17px;font-weight:600;color:#2f4bd8;text-decoration:none">'
             f'{escape(j["title"])}</a>'
@@ -501,7 +504,9 @@ def job_text(j):
              f"  {age(j['posted'])}" if j["posted"] else None,
              f"  Pay: {j['pay']}" if j.get("pay") else None,
              f"  Note: {j['note']}" if j.get("note") else None,
-             match_analysis.render_text(j["analysis"]) if j.get("analysis") and match_analysis else None,
+             (match_analysis.render_text(j["analysis"]) if j.get("analysis")
+              else match_analysis.render_note_text(j["analysis_note"]) if j.get("analysis_note") else None)
+             if match_analysis else None,
              f"  {j['url']}"]
     return "\n".join(p for p in parts if p)
 
