@@ -27,7 +27,7 @@ from html import escape, unescape
 # Set a GEMINI_MODEL variable to force one model. Otherwise these are tried in order,
 # moving to the next if Google says a model name doesn't exist (they retire old ones).
 MODELS = [os.environ["GEMINI_MODEL"].strip()] if os.environ.get("GEMINI_MODEL", "").strip() else \
-    ["gemini-2.5-flash", "gemini-flash-latest", "gemini-2.0-flash"]
+    ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-flash-latest"]
 MAX_JOBS_PER_RUN = 10          # most roles analyzed in one email
 SECONDS_BETWEEN_CALLS = 5      # keeps us under the free tier's per-minute limit
 TIME_BUDGET_SECONDS = 90       # stop analyzing after this long, send the email anyway
@@ -127,12 +127,15 @@ Return JSON only, with exactly these keys:
 }}"""
 
 
-def _ask_model(model, prompt):
+def _ask_model(model, prompt, thinking=True):
     key = os.environ.get("GEMINI_API_KEY", "").strip()
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{urllib.parse.quote(model)}:generateContent"
-    config = {"temperature": 0.2, "responseMimeType": "application/json", "maxOutputTokens": 1500}
-    if "2.5" in model:
-        config["thinkingConfig"] = {"thinkingBudget": 0}   # no long "thinking" phase: much faster, plenty for this task
+    # maxOutputTokens counts thinking tokens too, so leave plenty of room for the answer
+    config = {"temperature": 0.2, "responseMimeType": "application/json", "maxOutputTokens": 4000}
+    if thinking and "2.5" in model:
+        config["thinkingConfig"] = {"thinkingBudget": 0}        # no long "thinking" phase: much faster
+    elif thinking and re.search(r"gemini-3\.", model):
+        config["thinkingConfig"] = {"thinkingLevel": "low"}     # newer models take a level, not a budget
     body = json.dumps({
         "systemInstruction": {"parts": [{"text": SYSTEM}]},
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
@@ -148,7 +151,17 @@ def call_gemini(prompt):
     data = None
     for model in MODELS:
         try:
-            data = _ask_model(model, prompt)
+            try:
+                data = _ask_model(model, prompt)
+            except urllib.error.HTTPError as e:
+                if e.code != 400:
+                    raise
+                detail400 = e.read().decode("utf-8", errors="replace")
+                if "thinking" not in detail400.lower():
+                    e.read = lambda *a, _d=detail400.encode(): _d     # let the handler below show the real message
+                    raise
+                print(f"  Gemini model {model} rejected the thinking setting, retrying without it.")
+                data = _ask_model(model, prompt, thinking=False)
             if MODELS[0] != model:
                 MODELS.remove(model)
                 MODELS.insert(0, model)      # remember the one that works for the rest of this run
