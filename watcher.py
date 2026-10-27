@@ -474,6 +474,14 @@ def age(dt):
     return f"posted {mins // 1440} days ago"
 
 
+def linkedin_links(company):
+    """LinkedIn people searches for this company, so you can connect with recruiters and the design team."""
+    def search(words):
+        return ("https://www.linkedin.com/search/results/people/?keywords="
+                + urllib.parse.quote(f"{company} {words}"))
+    return [("LinkedIn: recruiters", search("recruiter")), ("LinkedIn: design team", search("design"))]
+
+
 def job_html(j):
     bits = [escape(j["company"])]
     if j["location"]:
@@ -496,7 +504,10 @@ def job_html(j):
             f'<div style="color:#5d6478;font-size:14px;margin-top:2px">{" &nbsp;|&nbsp; ".join(bits)}</div>{extra}'
             f'<div style="margin-top:8px"><a href="{escape(j["url"])}" style="display:inline-block;background:#2f4bd8;'
             f'color:#fff;padding:7px 14px;border-radius:8px;text-decoration:none;font-size:14px">Open and apply</a>'
-            f'</div></td></tr>')
+            + "".join(f' <a href="{escape(url)}" style="display:inline-block;border:1px solid #c9cfdc;color:#2f4bd8;'
+                      f'padding:6px 12px;border-radius:8px;text-decoration:none;font-size:14px;margin-left:6px">'
+                      f'{escape(label)}</a>' for label, url in linkedin_links(j["company"]))
+            + '</div></td></tr>')
 
 
 def job_text(j):
@@ -508,6 +519,7 @@ def job_text(j):
               else match_analysis.render_note_text(j["analysis_note"]) if j.get("analysis_note") else None)
              if match_analysis else None,
              f"  {j['url']}"]
+    parts += [f"  {label}: {url}" for label, url in linkedin_links(j["company"])]
     return "\n".join(p for p in parts if p)
 
 
