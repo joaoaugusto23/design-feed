@@ -370,10 +370,11 @@ def check_company(company):
 
 # ---------------------------------------------------------------- matching
 
-US_STATES = ("alabama|alaska|arizona|arkansas|california|colorado|connecticut|delaware|florida|georgia|hawaii|"
+US_STATES = ("alabama|alaska|arizona|arkansas|california|colorado|connecticut|delaware|florida|hawaii|"
              "idaho|illinois|indiana|iowa|kansas|kentucky|louisiana|maine|maryland|massachusetts|michigan|"
              "minnesota|mississippi|missouri|montana|nebraska|nevada|new hampshire|new jersey|new mexico|"
              "new york|north carolina|north dakota|ohio|oklahoma|oregon|pennsylvania|rhode island|"
+             # "georgia" is left out on purpose: bare "Georgia" is usually the country. "Atlanta, GA" still matches.
              "south carolina|south dakota|tennessee|texas|utah|vermont|virginia|washington|west virginia|"
              "wisconsin|wyoming")
 US_CODES = ("AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|"
@@ -387,6 +388,8 @@ NON_US_RE = re.compile(
     r"zurich|italy|india|bangalore|bengaluru|hyderabad|apac|asia|australia|sydney|melbourne|new zealand|singapore|"
     r"japan|tokyo|korea|seoul|israel|tel aviv|philippines|manila|vietnam|indonesia|china|hong kong|taiwan|"
     r"south africa|nigeria|kenya|egypt|uae|dubai)\b", re.I)
+BRAZIL_RE = re.compile(r"\b(brazil|brasil|são paulo|sao paulo|rio de janeiro|latam|latin america)\b", re.I)
+BRAZIL_COUNTRIES = ("br", "bra", "brazil", "brasil")
 REMOTE_RE = re.compile(r"\b(remote|anywhere|distributed|work from home|wfh)\b", re.I)
 
 
@@ -425,12 +428,13 @@ def matches(job):
         country = (job["country"] or "").strip().lower()
         is_us = country in ("us", "usa", "united states", "united states of america") \
             or bool(US_RE.search(loc)) or bool(US_CODE_RE.search(loc))
-        if not is_us:
+        is_br = SETTINGS.get("allow_brazil", False) and (country in BRAZIL_COUNTRIES or bool(BRAZIL_RE.search(loc)))
+        if not (is_us or is_br):
             if country or NON_US_RE.search(loc):
                 return False, None
             if not SETTINGS.get("include_unclear_location", True):
                 return False, None
-            return True, "Location doesn't say which country. Check it's open to the US before applying."
+            return True, "Location doesn't say which country. Check it's open to the US or Brazil before applying."
     return True, None
 
 
@@ -492,6 +496,9 @@ def linkedin_job_searches():
         if SETTINGS.get("require_us", True):
             params["geoId"] = "103644278"
         out.append((words, "https://www.linkedin.com/jobs/search/?" + urllib.parse.urlencode(params)))
+        if SETTINGS.get("require_us", True) and SETTINGS.get("allow_brazil", False):
+            br = dict(params, geoId="106057199")   # Brazil
+            out.append((f"{words} (Brazil)", "https://www.linkedin.com/jobs/search/?" + urllib.parse.urlencode(br)))
     return out
 
 
@@ -665,6 +672,8 @@ def main():
     new, already, failed = [], [], []
     manual_total = sum(1 for c in companies if c[2] == "manual")
     recent_cutoff = NOW - timedelta(days=RECENT_DAYS)
+    max_age = int(SETTINGS.get("max_age_days", 0) or 0)
+    age_cutoff = NOW - timedelta(days=max_age) if max_age > 0 else None
     for (ats, slug, source), jobs, err in results:
         key = f"{ats}:{slug.lower()}"
         if err:
@@ -683,6 +692,9 @@ def main():
         for job in jobs:
             if job["id"] in seen:
                 seen[job["id"]] = NOW.isoformat()  # still open; refresh so it isn't pruned
+                continue
+            if age_cutoff and job["posted"] and job["posted"] < age_cutoff:
+                seen[job["id"]] = NOW.isoformat()  # too old: remember it so it never comes back, but don't email
                 continue
             ok, note = matches(job)
             if not ok:

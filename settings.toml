@@ -50,6 +50,14 @@ require_remote = true
 # Only roles open to people in the United States? (true or false)
 require_us = true
 
+# Also allow roles open to Brazil (listed as Brazil, Brasil, São Paulo, LATAM...)?
+# Only used when require_us = true. The role still has to be fully remote.
+allow_brazil = true
+
+# Skip roles posted more than this many days ago (0 = no limit).
+# Roles with no posting date at all are still emailed.
+max_age_days = 30
+
 # Some listings just say "Remote" without naming a country.
 # true = email them to you anyway, with a note to double-check.
 # false = skip them.
