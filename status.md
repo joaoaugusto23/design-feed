@@ -1,7 +1,11 @@
 # Job watcher status
 
-Your list (companies.txt): watching 55 of 55 successfully.
+Your list (companies.txt): watching 54 of 55 successfully.
 
-Found automatically (discovered.txt): watching 17012 companies. 3276 were dropped because their job pages no longer exist.
+Found automatically (discovered.txt): watching 17012 companies. 3277 were dropped because their job pages no longer exist.
 
-Everything on your list is working.
+## Needs attention
+
+These lines in companies.txt couldn't be checked. Fix the name or delete the line.
+
+- lever 'palantir': couldn't load (The read operation timed out)
