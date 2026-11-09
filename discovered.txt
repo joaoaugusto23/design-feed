@@ -20414,3 +20414,7 @@ workday zoom.wd5/zoom
 workday zrsmanagement.wd5/zrs_careers
 workday zuehlke.wd3/Zuhlke-Careers
 greenhouse amediumcorporation
+lever lumaril-corporation
+smartrecruiters Sumundi
+workable ninetwothree-ai-studio
+workable valis
