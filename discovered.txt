@@ -20420,3 +20420,5 @@ workable ninetwothree-ai-studio
 workable valis
 smartrecruiters Optimizely
 smartrecruiters InfojiniInc1
+greenhouse letaido
+smartrecruiters NITSSolutions
