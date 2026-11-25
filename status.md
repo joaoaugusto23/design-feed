@@ -2,6 +2,6 @@
 
 Your list (companies.txt): watching 55 of 55 successfully.
 
-Found automatically (discovered.txt): watching 17409 companies. 3388 were dropped because their job pages no longer exist.
+Found automatically (discovered.txt): watching 17409 companies. 3389 were dropped because their job pages no longer exist.
 
 Everything on your list is working.
